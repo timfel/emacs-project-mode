@@ -120,6 +120,10 @@ The form must be like the following:
                                        (string-match "^ms-dos.*" (symbol-name system-type)))
   "Predicate indicating if this `SYSTEM-TYPE' is windows for the purpose of using the correct directory separator.")
 
+(defvar *project-current-refresh-process* nil
+  "For project-mode. Refreshing a project will happen in a separate emacs process.
+   This variable will point to that process, to avoid running multiple refreshes concurrently")
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Interactive commands
@@ -347,7 +351,27 @@ DAdd a search directory to project: ")
     (visit-tags-table (project-tags-file (project-current))))
   (message "Done refreshing tags."))
 
+
 (defun project-refresh nil
+  (interactive)
+  (project-ensure-current)
+  (if (and *project-current-refresh-process*
+	   (not (eq 'exit (process-status *project-current-refresh-process*))))
+      (kill-process *project-current-refresh-process*))
+  (message "Refreshing project in separate process")
+  (let ((code (list
+	       (concat "(setq load-path '(" (mapconcat (lambda (e) (concat "\\\"" e "\\\"")) load-path " ") "))")
+	       "(require 'project-mode)"
+	       "(project-load-all)"
+	       (concat "(project-open \\\"" (symbol-name (project-current)) "\\\")")
+	       "(project-refresh-in-process)")))
+    (setq *project-current-refresh-process*
+	  (start-process-shell-command "project-refresh" "*project-refresh*"
+				       (concat "emacs -Q --batch --eval=\""
+					       (mapconcat 'identity code "\" --eval=\"")
+					       "\"")))))
+
+(defun project-refresh-in-process nil
   (interactive)
   (project-ensure-current)
   (project-path-cache-refresh)
